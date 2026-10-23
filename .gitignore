@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Gradle / Kotlin
+.gradle/
+build/
+.kotlin/
+local.properties
+!gradle/wrapper/gradle-wrapper.jar
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+iosApp/build/
+
+# Secrets (Firebase config etc. added later)
+*.p8
+.env
