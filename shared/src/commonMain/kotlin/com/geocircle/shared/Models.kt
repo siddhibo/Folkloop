@@ -23,8 +23,11 @@ data class Geofence(
 
 /** How someone belongs to a group. Real invitations arrive with the backend milestone. */
 enum class MembershipStatus {
-    /** Created the group on this device. */
+    /** Created the group. */
     OWNER,
+
+    /** Joined with the group's join code. */
+    MEMBER,
 
     /** Added locally for testing. No real person has been invited. */
     SIMULATED,

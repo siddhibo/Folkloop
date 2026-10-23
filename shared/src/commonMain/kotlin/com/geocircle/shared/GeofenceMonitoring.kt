@@ -34,8 +34,16 @@ object GeofenceMonitoring {
     fun isExit(previous: RegionState, current: RegionState): Boolean =
         previous == RegionState.INSIDE && current == RegionState.OUTSIDE
 
-    fun exitAlert(geofence: Geofence, groupName: String): ExitAlert = ExitAlert(
+    /**
+     * The alert the person who left sees on their own device.
+     * Other members only get a live in-app alert while GeoCircle is running on their device; it is not a push notification.
+     */
+    fun exitAlert(geofence: Geofence, groupName: String, otherMemberCount: Int): ExitAlert = ExitAlert(
         title = "Left ${geofence.name}",
-        body = "You left ${geofence.name} ($groupName). Only this device was alerted.",
+        body = "You left ${geofence.name} ($groupName). " + when (otherMemberCount) {
+            0 -> "No other members are in this group yet."
+            1 -> "Shared with 1 other member, who sees it only if GeoCircle is open."
+            else -> "Shared with $otherMemberCount other members, who see it only if GeoCircle is open."
+        },
     )
 }

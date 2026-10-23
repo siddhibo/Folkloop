@@ -51,11 +51,17 @@ class GeofenceMonitoringTest {
     }
 
     @Test
-    fun exitAlertNamesPlaceAndGroupAndSaysItIsLocal() {
-        val alert = GeofenceMonitoring.exitAlert(geofence("a", 37.0), groupName = "Family")
+    fun exitAlertNamesPlaceAndGroup() {
+        val alert = GeofenceMonitoring.exitAlert(geofence("a", 37.0), groupName = "Family", otherMemberCount = 0)
         assertEquals("Left Place a", alert.title)
-        assertTrue("Place a" in alert.body)
-        assertTrue("Family" in alert.body)
-        assertTrue("Only this device" in alert.body)
+        assertEquals("You left Place a (Family). No other members are in this group yet.", alert.body)
+    }
+
+    @Test
+    fun exitAlertSaysOtherMembersOnlySeeItWhileAppIsOpen() {
+        val one = GeofenceMonitoring.exitAlert(geofence("a", 37.0), "Family", otherMemberCount = 1)
+        val two = GeofenceMonitoring.exitAlert(geofence("a", 37.0), "Family", otherMemberCount = 2)
+        assertTrue("1 other member, who sees it only if GeoCircle is open" in one.body)
+        assertTrue("2 other members, who see it only if GeoCircle is open" in two.body)
     }
 }

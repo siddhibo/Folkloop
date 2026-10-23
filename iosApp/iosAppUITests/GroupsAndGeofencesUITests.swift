@@ -4,8 +4,7 @@ import XCTest
 final class GroupsAndGeofencesUITests: XCTestCase {
     @MainActor
     func testCreateGroupAndSaveGeofence() {
-        let app = XCUIApplication()
-        app.launch()
+        let app = XCUIApplication.launchSignedUp(as: "Alice")
 
         // Create a group. An empty name must be rejected by the Kotlin validation.
         app.buttons["New Group"].tap()
@@ -18,7 +17,7 @@ final class GroupsAndGeofencesUITests: XCTestCase {
         app.buttons["Create"].tap()
 
         let groupRow = app.staticTexts["Family"]
-        XCTAssertTrue(groupRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(groupRow.waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["0 geofences"].exists)
         groupRow.tap()
 
@@ -36,24 +35,16 @@ final class GroupsAndGeofencesUITests: XCTestCase {
         // SwiftUI updates the button a moment after the tap, so wait for it.
         let enabled = expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: saveButton)
         wait(for: [enabled], timeout: 3)
-        attachScreenshot(app, named: "Geofence editor")
+        attachScreenshot(named: "Geofence editor")
         saveButton.tap()
 
         // The saved row shows the default 300 m radius followed by its coordinates.
         let savedRow = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '300 m'")).firstMatch
-        XCTAssertTrue(savedRow.waitForExistence(timeout: 3))
-        attachScreenshot(app, named: "Group detail")
+        XCTAssertTrue(savedRow.waitForExistence(timeout: 10))
+        attachScreenshot(named: "Group detail")
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["1 geofence"].waitForExistence(timeout: 3))
-        attachScreenshot(app, named: "Groups list")
-    }
-
-    @MainActor
-    private func attachScreenshot(_ app: XCUIApplication, named name: String) {
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = name
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        attachScreenshot(named: "Groups list")
     }
 }

@@ -11,6 +11,7 @@ struct GeofenceEditorView: View {
     @State private var center: CLLocationCoordinate2D?
     @State private var radiusMeters = 300.0
     @State private var errorMessage: String?
+    @State private var isSaving = false
 
     // Starts near Apple Park until the app uses the device location in a later milestone.
     @State private var cameraPosition = MapCameraPosition.region(
@@ -68,7 +69,7 @@ struct GeofenceEditorView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", action: save)
-                        .disabled(center == nil)
+                        .disabled(center == nil || isSaving)
                 }
             }
         }
@@ -78,11 +79,15 @@ struct GeofenceEditorView: View {
 
     private func save() {
         guard let center else { return }
-        do {
-            try store.addGeofence(to: group, name: name, center: center, radiusMeters: radiusMeters)
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
+        isSaving = true
+        Task {
+            do {
+                try await store.addGeofence(to: group, name: name, center: center, radiusMeters: radiusMeters)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isSaving = false
         }
     }
 }

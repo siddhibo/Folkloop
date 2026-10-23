@@ -6,7 +6,6 @@ struct GroupDetailView: View {
     @Environment(GroupStore.self) private var store
     @Environment(GeofenceMonitor.self) private var monitor
     @State private var isAddingGeofence = false
-    @State private var isAddingMember = false
     let group: TrackingGroup
 
     var body: some View {
@@ -43,13 +42,16 @@ struct GroupDetailView: View {
                         }
                     }
                     .onDelete { offsets in
-                        offsets.map { geofences[$0] }.forEach(store.deleteGeofence)
+                        let removed = offsets.map { geofences[$0] }
+                        Task {
+                            for geofence in removed {
+                                try? await store.deleteGeofence(geofence)
+                            }
+                        }
                     }
                 }
             }
-            MembersSection(group: group) {
-                isAddingMember = true
-            }
+            MembersSection(group: group)
         }
         .navigationTitle(group.name)
         .toolbar {
@@ -57,12 +59,9 @@ struct GroupDetailView: View {
                 isAddingGeofence = true
             }
         }
+        // Sheets must live outside the List; one attached to a Section never opens.
         .sheet(isPresented: $isAddingGeofence) {
             GeofenceEditorView(group: group)
-        }
-        // Sheets must live outside the List; one attached to a Section never opens.
-        .sheet(isPresented: $isAddingMember) {
-            NewMemberView(group: group)
         }
     }
 

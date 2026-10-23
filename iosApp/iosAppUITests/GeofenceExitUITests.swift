@@ -7,11 +7,10 @@ final class GeofenceExitUITests: XCTestCase {
     private let sevenKilometresNorth = CLLocation(latitude: 37.3979, longitude: -122.0090)
 
     @MainActor
-    func testLeavingGeofenceShowsExitAlert() {
-        let app = XCUIApplication()
-        app.resetAuthorizationStatus(for: .location)
+    func testLeavingGeofenceShowsExitAlert() async throws {
+        XCUIApplication().resetAuthorizationStatus(for: .location)
         XCUIDevice.shared.location = XCUILocation(location: insideApplePark)
-        app.launch()
+        let app = XCUIApplication.launchSignedUp(as: "Dana")
 
         app.buttons["Enable Exit Alerts"].tap()
         allowSystemAlerts()
@@ -19,25 +18,12 @@ final class GeofenceExitUITests: XCTestCase {
         XCTAssertTrue(monitoringStatus.waitForExistence(timeout: 5))
 
         // Save a geofence around the current simulated location (the editor map opens centred on Apple Park).
-        app.buttons["New Group"].tap()
-        let groupName = app.textFields["Group name"]
-        groupName.tap()
-        groupName.typeText("Commute")
-        app.buttons["Create"].tap()
+        app.createGroup(named: "Commute")
         app.staticTexts["Commute"].tap()
-
-        app.buttons["Add Geofence"].tap()
-        let geofenceName = app.textFields["Geofence name"]
-        XCTAssertTrue(geofenceName.waitForExistence(timeout: 3))
-        geofenceName.tap()
-        geofenceName.typeText("Office")
-        app.descendants(matching: .any)["geofenceMap"].firstMatch.tap()
-        let saveButton = app.buttons["Save"]
-        wait(for: [expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: saveButton)], timeout: 3)
-        saveButton.tap()
+        app.addGeofenceAtMapCentre(named: "Office")
 
         XCTAssertTrue(app.staticTexts["Inside"].waitForExistence(timeout: 30), "Core Location should report the device inside")
-        attachScreenshot(app, named: "Inside geofence")
+        attachScreenshot(named: "Inside geofence")
 
         XCUIDevice.shared.location = XCUILocation(location: sevenKilometresNorth)
         XCTAssertTrue(app.staticTexts["Outside"].waitForExistence(timeout: 60), "Core Location should report the exit")
@@ -46,11 +32,37 @@ final class GeofenceExitUITests: XCTestCase {
         let banner = springboard.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS 'Left Office'")).firstMatch
         XCTAssertTrue(banner.waitForExistence(timeout: 10), "A local notification banner should appear")
-        attachScreenshot(app, named: "Exit notification")
+        attachScreenshot(named: "Exit notification")
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.staticTexts["You left Office (Commute). Only this device was alerted."].waitForExistence(timeout: 5))
-        attachScreenshot(app, named: "Exit Alerts status")
+        XCTAssertTrue(app.staticTexts["You left Office (Commute). No other members are in this group yet."].waitForExistence(timeout: 5))
+        // The person who left never gets the member alert about themselves.
+        XCTAssertFalse(app.staticTexts["Dana left Office (Commute)."].exists)
+        attachScreenshot(named: "Exit Alerts status")
+
+        // The exit was written to Firestore through the security rules.
+        let event = try await waitForExitEvent(inGroupNamed: "Commute")
+        XCTAssertEqual(EmulatorClient.string("memberName", in: event), "Dana")
+        XCTAssertEqual(EmulatorClient.string("geofenceName", in: event), "Office")
+    }
+
+    @MainActor
+    private func waitForExitEvent(inGroupNamed groupName: String) async throws -> [String: Any] {
+        let emulator = EmulatorClient()
+        for _ in 0..<20 {
+            let groups = try await emulator.adminList("groups")
+            // Several test runs may create a "Commute" group; check the newest ones too.
+            for group in groups where EmulatorClient.string("name", in: group) == groupName {
+                let groupID = String((group["name"] as! String).split(separator: "/").last!)
+                if let event = try await emulator.adminList("groups/\(groupID)/exitEvents").first(where: {
+                    EmulatorClient.string("memberName", in: $0) == "Dana"
+                }) {
+                    return event
+                }
+            }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+        throw EmulatorClient.RequestError(description: "No exit event was written for \(groupName)")
     }
 
     /// Taps through the location and notification permission prompts, in whichever order they appear.
@@ -66,13 +78,5 @@ final class GeofenceExitUITests: XCTestCase {
                 }
             }
         }
-    }
-
-    @MainActor
-    private func attachScreenshot(_ app: XCUIApplication, named name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = name
-        attachment.lifetime = .keepAlways
-        add(attachment)
     }
 }

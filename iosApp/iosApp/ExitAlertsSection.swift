@@ -4,6 +4,7 @@ import Shared
 /// Shows whether exit monitoring is running and lets the user grant permissions.
 struct ExitAlertsSection: View {
     @Environment(GeofenceMonitor.self) private var monitor
+    @Environment(GroupStore.self) private var store
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -23,14 +24,14 @@ struct ExitAlertsSection: View {
             default:
                 Text(statusText)
             }
-            if let lastExit = monitor.lastExitMessage {
-                Text(lastExit)
+            if let latestAlert = store.latestAlert {
+                Text(latestAlert)
                     .foregroundStyle(.secondary)
             }
         } header: {
             Text("Exit Alerts")
         } footer: {
-            Text("Alerts appear on this iPhone only. Other group members are not notified yet.")
+            Text("Your exits are shared with your groups. Other members see them as live in-app alerts only while GeoCircle is open on their device. These are not push notifications.")
         }
     }
 

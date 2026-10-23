@@ -3,24 +3,25 @@ import Observation
 import Shared
 import UserNotifications
 
-/// Watches saved geofences with Core Location and shows a local alert on this device when the user leaves one.
+/// Watches saved geofences with Core Location and reports when this device leaves one.
 ///
 /// iOS decides when region events arrive; delivery is not guaranteed or instant, especially in the background.
-/// Group data is still in memory, so monitoring stops when the app is terminated (the next launch has no geofences).
+/// Monitoring follows the signed-in user's geofences, so it stops after signing out.
 @MainActor
 @Observable
 final class GeofenceMonitor: NSObject {
     private(set) var authorization: CLAuthorizationStatus
     private(set) var monitoredIDs: Set<String> = []
     private(set) var totalGeofences = 0
-    private(set) var lastExitMessage: String?
     private var states: [String: RegionState] = [:]
+
+    /// Called on the main actor when this device leaves a monitored geofence.
+    @ObservationIgnored var onExit: ((Geofence) -> Void)?
 
     @ObservationIgnored private let locationManager = CLLocationManager()
     @ObservationIgnored private let monitorTask: Task<CLMonitor, Never>
     @ObservationIgnored private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var geofences: [Geofence] = []
-    @ObservationIgnored private var groupNames: [String: String] = [:]
 
     override init() {
         authorization = locationManager.authorizationStatus
@@ -43,9 +44,8 @@ final class GeofenceMonitor: NSObject {
     }
 
     /// Call whenever the saved geofences change.
-    func sync(geofences: [Geofence], groupNames: [String: String]) {
+    func sync(geofences: [Geofence]) {
         self.geofences = geofences
-        self.groupNames = groupNames
         totalGeofences = geofences.count
         scheduleSync()
     }
@@ -118,19 +118,7 @@ final class GeofenceMonitor: NSObject {
         guard GeofenceMonitoring.shared.isExit(previous: previous, current: newState),
               let geofence = geofences.first(where: { $0.id == identifier })
         else { return }
-
-        let alert = GeofenceMonitoring.shared.exitAlert(
-            geofence: geofence,
-            groupName: groupNames[geofence.groupId] ?? "Unknown group"
-        )
-        lastExitMessage = alert.body
-
-        let content = UNMutableNotificationContent()
-        content.title = alert.title
-        content.body = alert.body
-        content.sound = .default
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        onExit?(geofence)
     }
 }
 
