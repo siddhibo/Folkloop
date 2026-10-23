@@ -7,26 +7,26 @@ struct GroupsListView: View {
 
     var body: some View {
         NavigationStack {
-            List(store.groups) { group in
-                NavigationLink {
-                    GroupDetailView(group: group)
-                } label: {
-                    VStack(alignment: .leading) {
-                        Text(group.name)
-                            .font(.headline)
-                        Text(geofenceCountText(store.geofences(in: group).count))
-                            .font(.subheadline)
+            List {
+                ExitAlertsSection()
+                Section("Groups") {
+                    if store.groups.isEmpty {
+                        Text("No groups yet. Tap + to create your first tracking group.")
                             .foregroundStyle(.secondary)
                     }
-                }
-            }
-            .overlay {
-                if store.groups.isEmpty {
-                    ContentUnavailableView(
-                        "No Groups",
-                        systemImage: "person.3",
-                        description: Text("Tap + to create your first tracking group.")
-                    )
+                    ForEach(store.groups) { group in
+                        NavigationLink {
+                            GroupDetailView(group: group)
+                        } label: {
+                            VStack(alignment: .leading) {
+                                Text(group.name)
+                                    .font(.headline)
+                                Text(geofenceCountText(store.geofences(in: group).count))
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
             }
             .navigationTitle("Groups")
@@ -87,4 +87,5 @@ struct NewGroupView: View {
 #Preview {
     GroupsListView()
         .environment(GroupStore())
+        .environment(GeofenceMonitor())
 }

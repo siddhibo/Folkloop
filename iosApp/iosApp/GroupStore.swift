@@ -22,6 +22,14 @@ final class GroupStore {
         geofencesByGroup[group.id] ?? []
     }
 
+    var allGeofences: [Geofence] {
+        groups.flatMap { geofences(in: $0) }
+    }
+
+    var groupNamesByID: [String: String] {
+        Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.name) })
+    }
+
     func members(in group: TrackingGroup) -> [GroupMember] {
         membersByGroup[group.id] ?? []
     }

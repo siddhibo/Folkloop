@@ -4,6 +4,7 @@ import Shared
 
 struct GroupDetailView: View {
     @Environment(GroupStore.self) private var store
+    @Environment(GeofenceMonitor.self) private var monitor
     @State private var isAddingGeofence = false
     @State private var isAddingMember = false
     let group: TrackingGroup
@@ -27,10 +28,16 @@ struct GroupDetailView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(geofences) { geofence in
-                        VStack(alignment: .leading) {
-                            Text(geofence.name)
-                                .font(.headline)
-                            Text("\(Int(geofence.radiusMeters)) m · \(coordinateText(geofence.center))")
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(geofence.name)
+                                    .font(.headline)
+                                Text("\(Int(geofence.radiusMeters)) m · \(coordinateText(geofence.center))")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(monitor.stateText(for: geofence))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }

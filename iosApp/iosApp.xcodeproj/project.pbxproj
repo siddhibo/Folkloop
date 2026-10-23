@@ -382,6 +382,8 @@
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = GeoCircle;
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "GeoCircle uses your location in the background to alert you when you leave a group geofence.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GeoCircle uses your location to detect when you leave a group geofence.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -415,6 +417,8 @@
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = GeoCircle;
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "GeoCircle uses your location in the background to alert you when you leave a group geofence.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GeoCircle uses your location to detect when you leave a group geofence.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
