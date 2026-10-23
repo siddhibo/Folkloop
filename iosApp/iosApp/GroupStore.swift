@@ -9,6 +9,7 @@ import Shared
 final class GroupStore {
     private(set) var groups: [TrackingGroup] = []
     private var geofencesByGroup: [String: [Geofence]] = [:]
+    private var membersByGroup: [String: [GroupMember]] = [:]
 
     @ObservationIgnored private let repository: any GroupRepository
 
@@ -19,6 +20,10 @@ final class GroupStore {
 
     func geofences(in group: TrackingGroup) -> [Geofence] {
         geofencesByGroup[group.id] ?? []
+    }
+
+    func members(in group: TrackingGroup) -> [GroupMember] {
+        membersByGroup[group.id] ?? []
     }
 
     /// Throws with a readable message when Kotlin validation fails.
@@ -37,8 +42,14 @@ final class GroupStore {
         reload()
     }
 
+    func addSimulatedMember(to group: TrackingGroup, named displayName: String) throws {
+        _ = try repository.addSimulatedMember(groupId: group.id, displayName: displayName)
+        reload()
+    }
+
     private func reload() {
         groups = repository.groups()
         geofencesByGroup = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, repository.geofences(groupId: $0.id)) })
+        membersByGroup = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, repository.members(groupId: $0.id)) })
     }
 }

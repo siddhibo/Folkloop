@@ -20,3 +20,19 @@ data class Geofence(
     val center: GeoPoint,
     val radiusMeters: Double,
 )
+
+/** How someone belongs to a group. Real invitations arrive with the backend milestone. */
+enum class MembershipStatus {
+    /** Created the group on this device. */
+    OWNER,
+
+    /** Added locally for testing. No real person has been invited. */
+    SIMULATED,
+}
+
+data class GroupMember(
+    val id: String,
+    val groupId: String,
+    val displayName: String,
+    val status: MembershipStatus,
+)

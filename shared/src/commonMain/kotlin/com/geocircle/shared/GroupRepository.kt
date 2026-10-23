@@ -1,7 +1,7 @@
 package com.geocircle.shared
 
 /**
- * Stores groups and their geofences.
+ * Stores groups with their geofences and members.
  * Invalid input throws IllegalArgumentException; Swift sees these functions as `throws`.
  */
 interface GroupRepository {
@@ -16,12 +16,19 @@ interface GroupRepository {
     fun addGeofence(groupId: String, name: String, center: GeoPoint, radiusMeters: Double): Geofence
 
     fun deleteGeofence(geofenceId: String)
+
+    fun members(groupId: String): List<GroupMember>
+
+    /** Adds a local placeholder member. Nobody is contacted. */
+    @Throws(IllegalArgumentException::class)
+    fun addSimulatedMember(groupId: String, displayName: String): GroupMember
 }
 
 /** Keeps everything in memory. Data is lost when the app restarts; Firestore replaces this later. */
 class InMemoryGroupRepository : GroupRepository {
     private val groups = mutableListOf<TrackingGroup>()
     private val geofences = mutableListOf<Geofence>()
+    private val members = mutableListOf<GroupMember>()
     private var nextId = 1
 
     override fun groups(): List<TrackingGroup> = groups.toList()
@@ -31,6 +38,8 @@ class InMemoryGroupRepository : GroupRepository {
         Validation.nameError(name)?.let { throw IllegalArgumentException(it) }
         val group = TrackingGroup(id = newId("group"), name = name.trim())
         groups += group
+        // Without sign-in, the person using this device owns every group they create.
+        members += GroupMember(newId("member"), group.id, OWNER_DISPLAY_NAME, MembershipStatus.OWNER)
         return group
     }
 
@@ -60,5 +69,26 @@ class InMemoryGroupRepository : GroupRepository {
         geofences.removeAll { it.id == geofenceId }
     }
 
+    override fun members(groupId: String): List<GroupMember> =
+        members.filter { it.groupId == groupId }
+
+    @Throws(IllegalArgumentException::class)
+    override fun addSimulatedMember(groupId: String, displayName: String): GroupMember {
+        require(groups.any { it.id == groupId }) { "Group not found." }
+        Validation.nameError(displayName)?.let { throw IllegalArgumentException(it) }
+        val trimmed = displayName.trim()
+        require(members(groupId).none { it.displayName.equals(trimmed, ignoreCase = true) }) {
+            "$trimmed is already in this group."
+        }
+
+        val member = GroupMember(newId("member"), groupId, trimmed, MembershipStatus.SIMULATED)
+        members += member
+        return member
+    }
+
     private fun newId(prefix: String): String = "$prefix-${nextId++}"
+
+    companion object {
+        const val OWNER_DISPLAY_NAME = "You"
+    }
 }

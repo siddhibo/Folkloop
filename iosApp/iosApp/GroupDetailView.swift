@@ -5,6 +5,7 @@ import Shared
 struct GroupDetailView: View {
     @Environment(GroupStore.self) private var store
     @State private var isAddingGeofence = false
+    @State private var isAddingMember = false
     let group: TrackingGroup
 
     var body: some View {
@@ -19,7 +20,12 @@ struct GroupDetailView: View {
                         .frame(height: 220)
                         .listRowInsets(EdgeInsets())
                 }
-                Section("Geofences") {
+            }
+            Section("Geofences") {
+                if geofences.isEmpty {
+                    Text("No geofences yet. Tap + to add an area for this group.")
+                        .foregroundStyle(.secondary)
+                } else {
                     ForEach(geofences) { geofence in
                         VStack(alignment: .leading) {
                             Text(geofence.name)
@@ -34,14 +40,8 @@ struct GroupDetailView: View {
                     }
                 }
             }
-        }
-        .overlay {
-            if geofences.isEmpty {
-                ContentUnavailableView(
-                    "No Geofences",
-                    systemImage: "mappin.circle",
-                    description: Text("Tap + to add an area for this group.")
-                )
+            MembersSection(group: group) {
+                isAddingMember = true
             }
         }
         .navigationTitle(group.name)
@@ -52,6 +52,10 @@ struct GroupDetailView: View {
         }
         .sheet(isPresented: $isAddingGeofence) {
             GeofenceEditorView(group: group)
+        }
+        // Sheets must live outside the List; one attached to a Section never opens.
+        .sheet(isPresented: $isAddingMember) {
+            NewMemberView(group: group)
         }
     }
 
