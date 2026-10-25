@@ -21,9 +21,17 @@ iosApp/build/
 
 # Secrets (Firebase config etc. added later)
 *.p8
+*.p12
+*.cer
+*.mobileprovision
+*service-account*.json
+*serviceAccount*.json
 .env
+.env.*
 
 # Firebase
 backend/node_modules/
+backend/functions/node_modules/
+.firebase/
 *-debug.log
 GoogleService-Info.plist

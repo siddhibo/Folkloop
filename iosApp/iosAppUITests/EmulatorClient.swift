@@ -1,7 +1,5 @@
 import Foundation
 
-/// Acts as a second member's device by calling the local Firebase emulators' REST APIs.
-/// Requests carry that user's own ID token, so the Firestore security rules apply exactly as they do to the app.
 @MainActor
 struct EmulatorClient {
     struct User {
@@ -34,7 +32,6 @@ struct EmulatorClient {
         return User(uid: uid, idToken: token)
     }
 
-    /// Joins the way the app does: a member document carrying the code, plus adding the user's id, in one commit.
     func join(code: String, as user: User, displayName: String) async throws -> String {
         let lookup = try await send("GET", "\(documentsURL)/joinCodes/\(code)", token: user.idToken)
         guard let groupID = Self.string("groupId", in: lookup) else {
@@ -75,7 +72,7 @@ struct EmulatorClient {
         return String(path.split(separator: "/").last!)
     }
 
-    func reportExit(groupID: String, geofenceID: String, geofenceName: String, memberName: String, as user: User) async throws {
+    func reportExit(groupID: String, geofenceID: String, geofenceName: String, memberName: String, as user: User, isEntry: Bool = false) async throws {
         try await commit([[
             "update": [
                 "name": "\(documentsName)/groups/\(groupID)/exitEvents/\(UUID().uuidString)",
@@ -84,6 +81,7 @@ struct EmulatorClient {
                     "memberName": ["stringValue": memberName],
                     "geofenceId": ["stringValue": geofenceID],
                     "geofenceName": ["stringValue": geofenceName],
+                    "type": ["stringValue": isEntry ? "ENTRY" : "EXIT"],
                 ],
             ],
             "updateTransforms": [["fieldPath": "occurredAt", "setToServerValue": "REQUEST_TIME"]],
@@ -91,15 +89,38 @@ struct EmulatorClient {
         ]], token: user.idToken)
     }
 
-    /// Reads a collection as an emulator admin, bypassing security rules, to check what the app wrote.
     func adminList(_ collectionPath: String) async throws -> [[String: Any]] {
         let json = try await send("GET", "\(documentsURL)/\(collectionPath)", token: "owner")
         return json["documents"] as? [[String: Any]] ?? []
     }
 
+    func adminDocument(_ documentPath: String) async throws -> [String: Any] {
+        try await send("GET", "\(documentsURL)/\(documentPath)", token: "owner")
+    }
+
+    func adminGroupID(forJoinCode code: String) async throws -> String {
+        let lookup = try await adminDocument("joinCodes/\(code)")
+        guard let groupID = Self.string("groupId", in: lookup) else {
+            throw RequestError(description: "Join code not found: \(lookup)")
+        }
+        return groupID
+    }
+
     static func string(_ field: String, in document: [String: Any]) -> String? {
         let fields = document["fields"] as? [String: Any]
         return (fields?[field] as? [String: Any])?["stringValue"] as? String
+    }
+
+    static func number(_ field: String, in document: [String: Any]) -> Double? {
+        let value = (document["fields"] as? [String: Any])?[field] as? [String: Any]
+        if let double = value?["doubleValue"] as? Double {
+            return double
+        }
+        return (value?["integerValue"] as? String).flatMap(Double.init)
+    }
+
+    static func documentID(of document: [String: Any]) -> String? {
+        (document["name"] as? String)?.split(separator: "/").last.map(String.init)
     }
 
     private func commit(_ writes: [[String: Any]], token: String) async throws {

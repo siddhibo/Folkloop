@@ -1,9 +1,5 @@
 package com.geocircle.shared
 
-/**
- * Stores groups with their geofences and members.
- * Invalid input throws IllegalArgumentException; Swift sees these functions as `throws`.
- */
 interface GroupRepository {
     fun groups(): List<TrackingGroup>
 
@@ -19,12 +15,10 @@ interface GroupRepository {
 
     fun members(groupId: String): List<GroupMember>
 
-    /** Adds a local placeholder member. Nobody is contacted. */
     @Throws(IllegalArgumentException::class)
     fun addSimulatedMember(groupId: String, displayName: String): GroupMember
 }
 
-/** Keeps everything in memory. Data is lost when the app restarts; Firestore replaces this later. */
 class InMemoryGroupRepository : GroupRepository {
     private val groups = mutableListOf<TrackingGroup>()
     private val geofences = mutableListOf<Geofence>()
@@ -38,7 +32,6 @@ class InMemoryGroupRepository : GroupRepository {
         Validation.nameError(name)?.let { throw IllegalArgumentException(it) }
         val group = TrackingGroup(id = newId("group"), name = name.trim())
         groups += group
-        // Without sign-in, the person using this device owns every group they create.
         members += GroupMember(newId("member"), group.id, OWNER_DISPLAY_NAME, MembershipStatus.OWNER)
         return group
     }

@@ -3,15 +3,14 @@ import FirebaseCore
 import FirebaseFirestore
 import Foundation
 
-/// Connects the app to Firebase.
-///
-/// With a `GoogleService-Info.plist` in the app, GeoCircle uses that real Firebase project.
-/// Without one it uses the local Firebase Emulator Suite (`npm run emulators` in `backend/`) with a "demo-" project,
-/// which cannot reach any real Google service. The placeholder values below are not credentials.
 enum FirebaseSetup {
-    static var usesEmulator: Bool {
-        Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") == nil
-    }
+    static let cloudProjectID = "folkloop-2effc"
+
+    #if DEBUG
+    static let usesEmulator = true
+    #else
+    static let usesEmulator = false
+    #endif
 
     static func configure() {
         if usesEmulator {
@@ -27,10 +26,15 @@ enum FirebaseSetup {
             settings.cacheSettings = MemoryCacheSettings()
             Firestore.firestore().settings = settings
         } else {
-            FirebaseApp.configure()
+            guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+                  let options = FirebaseOptions(contentsOfFile: path),
+                  options.projectID == cloudProjectID
+            else {
+                fatalError("Release builds need the GoogleService-Info.plist for \(cloudProjectID) in iosApp/iosApp/.")
+            }
+            FirebaseApp.configure(options: options)
         }
 
-        // UI tests start from a clean session because the emulator forgets accounts when it restarts.
         if ProcessInfo.processInfo.arguments.contains("-signOutOnLaunch") {
             try? Auth.auth().signOut()
         }

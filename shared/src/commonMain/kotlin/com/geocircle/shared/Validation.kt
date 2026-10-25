@@ -1,13 +1,8 @@
 package com.geocircle.shared
 
-/**
- * Input rules shared by every platform.
- * Each check returns an error message, or null when the input is valid.
- */
 object Validation {
     const val MAX_NAME_LENGTH = 40
 
-    // iOS region monitoring is unreliable below roughly 100 m.
     const val MIN_RADIUS_METERS = 100.0
     const val MAX_RADIUS_METERS = 2_000.0
 

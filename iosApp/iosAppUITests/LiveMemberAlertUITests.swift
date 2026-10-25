@@ -1,7 +1,5 @@
 import XCTest
 
-/// Another member joins with the join code and reports an exit; this device shows a live in-app alert.
-/// The other member is played by EmulatorClient, which is subject to the same security rules as the app.
 final class LiveMemberAlertUITests: XCTestCase {
     @MainActor
     func testOtherMembersExitAppearsAsLiveAlert() async throws {
@@ -13,23 +11,28 @@ final class LiveMemberAlertUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Owner"].exists)
         let joinCode = app.staticTexts["joinCode"]
         XCTAssertTrue(joinCode.waitForExistence(timeout: 10))
+        let code = joinCode.label
         app.addGeofenceAtMapCentre(named: "Office")
 
-        // Bob joins from "another device" using the code shown on screen.
         let emulator = EmulatorClient()
         let bob = try await emulator.signUp(as: "Bob")
-        let groupID = try await emulator.join(code: joinCode.label, as: bob, displayName: "Bob")
+        let groupID = try await emulator.join(code: code, as: bob, displayName: "Bob")
         XCTAssertTrue(app.staticTexts["Bob"].waitForExistence(timeout: 10), "Bob should appear as a member")
         XCTAssertTrue(app.staticTexts["Member"].exists)
         attachScreenshot(named: "Members after join")
 
-        // Bob reports leaving Office; Alice's running app should alert.
         let officeID = try await emulator.geofenceID(named: "Office", inGroup: groupID, as: bob)
         try await emulator.reportExit(groupID: groupID, geofenceID: officeID, geofenceName: "Office", memberName: "Bob", as: bob)
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["Bob left Office (Family)."].waitForExistence(timeout: 10))
         attachScreenshot(named: "Live member alert")
+
+        app.staticTexts["Family"].tap()
+        let bobStatus = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Last recorded exit: Office'")).firstMatch
+        XCTAssertTrue(bobStatus.waitForExistence(timeout: 10), "Bob's last recorded exit should be shown")
+        XCTAssertTrue(app.staticTexts["No activity recorded in the last 30 days"].exists, "Alice has no recorded activity")
+        attachScreenshot(named: "Member status")
     }
 
     @MainActor

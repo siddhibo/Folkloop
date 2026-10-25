@@ -28,6 +28,23 @@ class MemberAlertsTest {
     }
 
     @Test
+    fun eventIdIsStableForOneOccurrenceAndDistinctOtherwise() {
+        val first = MemberAlerts.eventId("bob", "office", isEntry = false, occurredAtMillis = 1_700_000_000_000)
+        assertEquals("bob_office_exit_1700000000000", first)
+        assertEquals(first, MemberAlerts.eventId("bob", "office", isEntry = false, occurredAtMillis = 1_700_000_000_000))
+        assertTrue(first != MemberAlerts.eventId("bob", "office", isEntry = false, occurredAtMillis = 1_700_000_060_000))
+        assertTrue(first != MemberAlerts.eventId("carol", "office", isEntry = false, occurredAtMillis = 1_700_000_000_000))
+        assertTrue(first != MemberAlerts.eventId("bob", "office", isEntry = true, occurredAtMillis = 1_700_000_000_000))
+    }
+
+    @Test
+    fun entryAlertSaysArrived() {
+        val alert = MemberAlerts.alert(bobLeftOffice.copy(isEntry = true), groupName = "Family")
+        assertEquals("Bob arrived at Office", alert.title)
+        assertEquals("Bob arrived at Office (Family).", alert.body)
+    }
+
+    @Test
     fun alertNamesMemberPlaceAndGroup() {
         val alert = MemberAlerts.alert(bobLeftOffice, groupName = "Family")
         assertEquals("Bob left Office", alert.title)

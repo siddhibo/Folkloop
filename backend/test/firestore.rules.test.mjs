@@ -1,5 +1,5 @@
-// Security rules tests. Run with `npm test` (starts the Firestore emulator automatically).
 import { after, before, beforeEach, describe, test } from 'node:test';
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   assertFails,
@@ -7,6 +7,7 @@ import {
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import {
+  arrayRemove,
   arrayUnion,
   collection,
   deleteDoc,
@@ -92,7 +93,6 @@ const exitEvent = (uid, overrides = {}) => ({
   ...overrides,
 });
 
-/** Alice owns the group with an "Office" geofence; Bob has joined. */
 async function seedGroupWithBob() {
   await createGroupBatch(dbFor('alice'), 'alice').commit();
   await setDoc(doc(dbFor('alice'), 'groups', GROUP, 'geofences', 'office'), geofence('alice'));
@@ -230,6 +230,52 @@ describe('geofences', () => {
     await assertFails(deleteDoc(doc(dbFor('bob'), 'groups', GROUP, 'geofences', 'office')));
     await assertSucceeds(deleteDoc(doc(dbFor('alice'), 'groups', GROUP, 'geofences', 'office')));
   });
+
+  const officeFor = (uid) => doc(dbFor(uid), 'groups', GROUP, 'geofences', 'office');
+  const gymFor = (uid) => doc(dbFor(uid), 'groups', GROUP, 'geofences', 'gym');
+
+  test('the creator can edit name, centre and radius', async () => {
+    await assertSucceeds(updateDoc(officeFor('alice'), { name: 'HQ', latitude: 37.4, longitude: -122.1, radiusMeters: 500 }));
+  });
+
+  test('the owner can edit a geofence another member created', async () => {
+    await setDoc(gymFor('bob'), geofence('bob', { name: 'Gym' }));
+    await assertSucceeds(updateDoc(gymFor('alice'), { radiusMeters: 800 }));
+  });
+
+  async function addGymAsRegularMemberBob() {
+    await setDoc(gymFor('bob'), geofence('bob', { name: 'Gym' }));
+    const bob = dbFor('bob');
+    assert.equal((await getDoc(doc(bob, 'groups', GROUP))).data().ownerId, 'alice');
+    assert.equal((await getDoc(doc(bob, 'groups', GROUP, 'members', 'bob'))).data().status, 'MEMBER');
+    assert.equal((await getDoc(gymFor('bob'))).data().createdBy, 'bob');
+  }
+
+  test('a regular member can edit a geofence they created', async () => {
+    await addGymAsRegularMemberBob();
+    await assertSucceeds(updateDoc(gymFor('bob'), { name: 'Climbing gym', latitude: 37.4, longitude: -122.1, radiusMeters: 600 }));
+  });
+
+  test('a regular member can delete a geofence they created', async () => {
+    await addGymAsRegularMemberBob();
+    await assertSucceeds(deleteDoc(gymFor('bob')));
+  });
+
+  test('other members and non-members cannot edit a geofence', async () => {
+    await assertFails(updateDoc(officeFor('bob'), { name: 'Mine now' }));
+    await assertFails(updateDoc(officeFor('mallory'), { name: 'Mine now' }));
+  });
+
+  test('edits cannot change the creator or add fields', async () => {
+    await assertFails(updateDoc(officeFor('alice'), { createdBy: 'bob' }));
+    await assertFails(updateDoc(officeFor('alice'), { notes: 'extra' }));
+  });
+
+  test('edits are validated like new geofences', async () => {
+    await assertFails(updateDoc(officeFor('alice'), { radiusMeters: 50 }));
+    await assertFails(updateDoc(officeFor('alice'), { latitude: 91 }));
+    await assertFails(updateDoc(officeFor('alice'), { name: ' ' }));
+  });
 });
 
 describe('exit events', () => {
@@ -266,5 +312,94 @@ describe('exit events', () => {
     await assertFails(updateDoc(eventDoc(dbFor('bob')), { geofenceName: 'Home' }));
     await assertFails(deleteDoc(eventDoc(dbFor('bob'))));
     await assertFails(deleteDoc(eventDoc(dbFor('alice'))));
+  });
+
+  test('entry and exit events are accepted with an explicit type', async () => {
+    await assertSucceeds(setDoc(eventDoc(dbFor('bob'), 'entry-1'), exitEvent('bob', { type: 'ENTRY' })));
+    await assertSucceeds(setDoc(eventDoc(dbFor('bob'), 'exit-1'), exitEvent('bob', { type: 'EXIT' })));
+  });
+
+  test('unknown event types are rejected', async () => {
+    await assertFails(setDoc(eventDoc(dbFor('bob'), 'stay-1'), exitEvent('bob', { type: 'STAY' })));
+    await assertFails(setDoc(eventDoc(dbFor('bob'), 'odd-1'), exitEvent('bob', { type: 1 })));
+  });
+});
+
+describe('push device tokens', () => {
+  const deviceFor = (uid, owner = uid) => doc(dbFor(uid), 'users', owner, 'devices', 'phone');
+  const device = (overrides = {}) => ({ token: 'fcm-token', platform: 'ios', updatedAt: serverTimestamp(), ...overrides });
+
+  test('a user can register, refresh, read and remove their own device token', async () => {
+    await assertSucceeds(setDoc(deviceFor('bob'), device()));
+    await assertSucceeds(setDoc(deviceFor('bob'), device({ token: 'refreshed-token' })));
+    await assertSucceeds(getDoc(deviceFor('bob')));
+    await assertSucceeds(deleteDoc(deviceFor('bob')));
+  });
+
+  test('nobody can read or write another user\'s device tokens', async () => {
+    await setDoc(deviceFor('bob'), device());
+    await assertFails(getDoc(deviceFor('alice', 'bob')));
+    await assertFails(getDocs(collection(dbFor('alice'), 'users', 'bob', 'devices')));
+    await assertFails(setDoc(deviceFor('alice', 'bob'), device({ token: 'hijacked' })));
+    await assertFails(deleteDoc(deviceFor('alice', 'bob')));
+    await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'users', 'bob', 'devices', 'phone')));
+  });
+
+  test('device documents are validated', async () => {
+    await assertFails(setDoc(deviceFor('bob'), device({ token: '' })));
+    await assertFails(setDoc(deviceFor('bob'), device({ platform: 'android' })));
+    await assertFails(setDoc(deviceFor('bob'), device({ updatedAt: Timestamp.now() })));
+    await assertFails(setDoc(deviceFor('bob'), device({ recipients: ['alice'] })));
+  });
+
+  test('clients cannot touch the server\'s notification delivery records', async () => {
+    const delivery = (uid) => doc(dbFor(uid), 'notificationDeliveries', 'group-1_event-1');
+    await assertFails(setDoc(delivery('bob'), { processedAt: serverTimestamp() }));
+    await assertFails(getDoc(delivery('bob')));
+  });
+});
+
+describe('leaving and removing members', () => {
+  beforeEach(async () => {
+    await seedGroupWithBob();
+    await joinBatch(dbFor('carol'), 'carol', { name: 'Carol' }).commit();
+  });
+
+  const removalBatch = (db, uid) => {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'groups', GROUP), { memberIds: arrayRemove(uid) });
+    batch.delete(doc(db, 'groups', GROUP, 'members', uid));
+    return batch;
+  };
+
+  test('a member can leave, and then loses access to the group', async () => {
+    await assertSucceeds(removalBatch(dbFor('bob'), 'bob').commit());
+    await assertFails(getDoc(doc(dbFor('bob'), 'groups', GROUP)));
+    await assertFails(getDocs(collection(dbFor('bob'), 'groups', GROUP, 'exitEvents')));
+    await assertFails(setDoc(doc(dbFor('bob'), 'groups', GROUP, 'exitEvents', 'late'), exitEvent('bob')));
+  });
+
+  test('the owner can remove a member', async () => {
+    await assertSucceeds(removalBatch(dbFor('alice'), 'bob').commit());
+  });
+
+  test('the owner cannot leave or be removed', async () => {
+    await assertFails(removalBatch(dbFor('alice'), 'alice').commit());
+    await assertFails(removalBatch(dbFor('bob'), 'alice').commit());
+  });
+
+  test('members cannot remove other members', async () => {
+    await assertFails(removalBatch(dbFor('bob'), 'carol').commit());
+    await assertFails(removalBatch(dbFor('mallory'), 'carol').commit());
+  });
+
+  test('only one member can be removed at a time and nobody can be swapped in', async () => {
+    await assertFails(updateDoc(doc(dbFor('alice'), 'groups', GROUP), { memberIds: ['alice'] }));
+    await assertFails(updateDoc(doc(dbFor('alice'), 'groups', GROUP), { memberIds: ['alice', 'carol', 'mallory'] }));
+  });
+
+  test('a member document can only be deleted once that member has left', async () => {
+    await assertFails(deleteDoc(doc(dbFor('bob'), 'groups', GROUP, 'members', 'bob')));
+    await assertFails(deleteDoc(doc(dbFor('alice'), 'groups', GROUP, 'members', 'alice')));
   });
 });

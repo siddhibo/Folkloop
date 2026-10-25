@@ -3,28 +3,31 @@ import FirebaseFirestore
 import Observation
 import Shared
 
-/// Keeps the signed-in user's groups in sync with Firestore and shares geofence exits with the group.
-///
-/// Input rules come from the Kotlin `Validation`, `JoinCodes` and `MemberAlerts` objects, and
-/// `backend/firestore.rules` enforces the same limits on the server.
-/// Other members' exits arrive through live Firestore listeners, so they only reach this device while
-/// GeoCircle is running. They are not remote push notifications.
 @MainActor
 @Observable
 final class GroupStore {
     private(set) var groups: [TrackingGroup] = []
     private(set) var latestAlert: String?
+    private(set) var isLoadingGeofences = true
     private var geofencesByGroup: [String: [Geofence]] = [:]
     private var membersByGroup: [String: [GroupMember]] = [:]
     private var joinCodesByGroup: [String: String] = [:]
+    private var ownerIDsByGroup: [String: String] = [:]
 
     @ObservationIgnored private let db = Firestore.firestore()
     @ObservationIgnored private var user: SignedInUser?
     @ObservationIgnored private var groupsListener: ListenerRegistration?
     @ObservationIgnored private var groupListeners: [String: [ListenerRegistration]] = [:]
+    @ObservationIgnored private var hasReceivedGroups = false
+    @ObservationIgnored private var loadedGeofenceGroupIDs: Set<String> = []
+    @ObservationIgnored private var sharedExitIDs: Set<String> = []
 
     var allGeofences: [Geofence] {
         groups.flatMap { geofences(in: $0) }
+    }
+
+    var geofencesToMonitor: [Geofence]? {
+        isLoadingGeofences ? nil : allGeofences
     }
 
     func geofences(in group: TrackingGroup) -> [Geofence] {
@@ -39,9 +42,6 @@ final class GroupStore {
         joinCodesByGroup[group.id]
     }
 
-    // MARK: - Listening
-
-    /// Starts listening for the user's groups, or clears everything when nobody is signed in.
     func start(for user: SignedInUser?) {
         stopListening()
         self.user = user
@@ -49,10 +49,13 @@ final class GroupStore {
         geofencesByGroup = [:]
         membersByGroup = [:]
         joinCodesByGroup = [:]
+        ownerIDsByGroup = [:]
         latestAlert = nil
+        hasReceivedGroups = false
+        loadedGeofenceGroupIDs = []
+        isLoadingGeofences = user != nil
         guard let user else { return }
 
-        // Metadata changes tell us when a group created on this device has reached the server.
         groupsListener = db.collection("groups")
             .whereField("memberIds", arrayContains: user.uid)
             .addSnapshotListener(includeMetadataChanges: true) { [weak self] snapshot, _ in
@@ -75,6 +78,9 @@ final class GroupStore {
         joinCodesByGroup = Dictionary(uniqueKeysWithValues: snapshot.documents.map {
             ($0.documentID, $0["joinCode"] as? String ?? "")
         })
+        ownerIDsByGroup = Dictionary(uniqueKeysWithValues: snapshot.documents.map {
+            ($0.documentID, $0["ownerId"] as? String ?? "")
+        })
 
         let groupIDs = Set(groups.map(\.id))
         for (groupID, listeners) in groupListeners where !groupIDs.contains(groupID) {
@@ -82,13 +88,25 @@ final class GroupStore {
             groupListeners[groupID] = nil
             geofencesByGroup[groupID] = nil
             membersByGroup[groupID] = nil
+            loadedGeofenceGroupIDs.remove(groupID)
         }
-        // A group created here appears before the server has saved it. The security rules would reject
-        // listeners attached that early (and Firestore never retries a rejected listener), so wait for the server.
         let savedGroupIDs = snapshot.documents.filter { !$0.metadata.hasPendingWrites }.map(\.documentID)
         for groupID in savedGroupIDs where groupListeners[groupID] == nil {
             groupListeners[groupID] = listen(toGroup: groupID)
         }
+        if Self.isConfirmed(snapshot) {
+            hasReceivedGroups = true
+        }
+        refreshGeofenceLoading()
+    }
+
+    private func refreshGeofenceLoading() {
+        isLoadingGeofences = user != nil
+            && (!hasReceivedGroups || !groupListeners.keys.allSatisfy(loadedGeofenceGroupIDs.contains))
+    }
+
+    private static func isConfirmed(_ snapshot: QuerySnapshot) -> Bool {
+        !(snapshot.metadata.isFromCache && snapshot.isEmpty)
     }
 
     private func listen(toGroup groupID: String) -> [ListenerRegistration] {
@@ -97,9 +115,14 @@ final class GroupStore {
         let geofences = groupRef.collection("geofences").addSnapshotListener { [weak self] snapshot, _ in
             guard let snapshot else { return }
             MainActor.assumeIsolated {
-                self?.geofencesByGroup[groupID] = snapshot.documents
+                guard let self else { return }
+                self.geofencesByGroup[groupID] = snapshot.documents
                     .compactMap { Self.geofence(from: $0, groupID: groupID) }
                     .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                if Self.isConfirmed(snapshot) {
+                    self.loadedGeofenceGroupIDs.insert(groupID)
+                }
+                self.refreshGeofenceLoading()
             }
         }
 
@@ -112,7 +135,6 @@ final class GroupStore {
             }
         }
 
-        // Only exits reported from now on become alerts; the first snapshot is history and is skipped.
         var isFirstSnapshot = true
         let exits = groupRef.collection("exitEvents")
             .whereField("occurredAt", isGreaterThan: Timestamp(date: Date().addingTimeInterval(-60)))
@@ -136,15 +158,13 @@ final class GroupStore {
               MemberAlerts.shared.shouldAlert(currentUserId: user.uid, event: event)
         else { return }
         let groupName = groups.first { $0.id == groupID }?.name ?? "your group"
-        show(MemberAlerts.shared.alert(event: event, groupName: groupName))
+        show(MemberAlerts.shared.alert(event: event, groupName: groupName), id: event.id)
     }
 
-    private func show(_ alert: ExitAlert) {
+    private func show(_ alert: ExitAlert, id: String) {
         latestAlert = alert.body
-        LocalNotifications.post(alert)
+        LocalNotifications.post(alert, id: id)
     }
-
-    // MARK: - Changes
 
     func createGroup(named rawName: String) async throws {
         let user = try requireUser()
@@ -154,7 +174,6 @@ final class GroupStore {
         let groupRef = db.collection("groups").document()
         let code = JoinCodes.shared.generate()
 
-        // The group, its join code and the owner's membership are created together or not at all.
         let batch = db.batch()
         batch.setData([
             "name": rawName.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -186,7 +205,6 @@ final class GroupStore {
             throw UserFacingError(message: "You're already in this group.")
         }
 
-        // The security rules accept the new member only if this document carries the right join code.
         let groupRef = db.collection("groups").document(groupID)
         let batch = db.batch()
         batch.setData([
@@ -201,12 +219,7 @@ final class GroupStore {
 
     func addGeofence(to group: TrackingGroup, name rawName: String, center: CLLocationCoordinate2D, radiusMeters: Double) async throws {
         let user = try requireUser()
-        let point = Shared.GeoPoint(center)
-        if let error = Validation.shared.nameError(name: rawName)
-            ?? Validation.shared.coordinateError(point: point)
-            ?? Validation.shared.radiusError(radiusMeters: radiusMeters) {
-            throw UserFacingError(message: error)
-        }
+        try Self.validateGeofence(name: rawName, center: center, radiusMeters: radiusMeters)
         _ = try await db.collection("groups").document(group.id).collection("geofences").addDocument(data: [
             "name": rawName.trimmingCharacters(in: .whitespacesAndNewlines),
             "latitude": center.latitude,
@@ -216,39 +229,156 @@ final class GroupStore {
         ])
     }
 
-    func deleteGeofence(_ geofence: Geofence) async throws {
-        try await db.collection("groups").document(geofence.groupId)
-            .collection("geofences").document(geofence.id).delete()
+    func updateGeofence(_ geofence: Geofence, name rawName: String, center: CLLocationCoordinate2D, radiusMeters: Double) async throws {
+        _ = try requireUser()
+        try Self.validateGeofence(name: rawName, center: center, radiusMeters: radiusMeters)
+        do {
+            try await geofenceRef(for: geofence).updateData([
+                "name": rawName.trimmingCharacters(in: .whitespacesAndNewlines),
+                "latitude": center.latitude,
+                "longitude": center.longitude,
+                "radiusMeters": radiusMeters,
+            ])
+        } catch where Self.isPermissionDenied(error) {
+            throw UserFacingError(message: "Only the person who added this geofence or the group owner can edit it.")
+        }
     }
 
-    /// Called when this device leaves a geofence: alerts here and shares the exit with the group.
-    func recordExit(from geofence: Geofence) {
+    func deleteGeofence(_ geofence: Geofence) async throws {
+        do {
+            try await geofenceRef(for: geofence).delete()
+        } catch where Self.isPermissionDenied(error) {
+            throw UserFacingError(message: "Only the person who added this geofence or the group owner can delete it.")
+        }
+    }
+
+    private func geofenceRef(for geofence: Geofence) -> DocumentReference {
+        db.collection("groups").document(geofence.groupId).collection("geofences").document(geofence.id)
+    }
+
+    private static func validateGeofence(name rawName: String, center: CLLocationCoordinate2D, radiusMeters: Double) throws {
+        if let error = Validation.shared.nameError(name: rawName)
+            ?? Validation.shared.coordinateError(point: Shared.GeoPoint(center))
+            ?? Validation.shared.radiusError(radiusMeters: radiusMeters) {
+            throw UserFacingError(message: error)
+        }
+    }
+
+    private static func isPermissionDenied(_ error: Error) -> Bool {
+        let error = error as NSError
+        return error.domain == FirestoreErrorDomain && error.code == FirestoreErrorCode.permissionDenied.rawValue
+    }
+
+    func recordExit(from geofence: Geofence, at occurredAt: Date) {
         guard let user, let group = groups.first(where: { $0.id == geofence.groupId }) else { return }
+        let eventID = Self.eventID(memberID: user.uid, geofence: geofence, isEntry: false, occurredAt: occurredAt)
+        guard sharedExitIDs.insert(eventID).inserted else { return }
         let members = members(in: group)
         let others = MemberAlerts.shared.recipients(members: members, exitingMemberId: user.uid)
-        show(GeofenceMonitoring.shared.exitAlert(geofence: geofence, groupName: group.name, otherMemberCount: Int32(others.count)))
+        let eventRef = db.collection("groups").document(group.id).collection("exitEvents").document(eventID)
+        let sharedAlert = GeofenceMonitoring.shared.exitAlert(geofence: geofence, groupName: group.name, otherMemberCount: Int32(others.count))
+        let title = sharedAlert.title
+        let sharedBody = sharedAlert.body
+        let leftPlace = "You left \(geofence.name) (\(group.name))."
+        show(ExitAlert(title: title, body: "\(leftPlace) Sharing your exit…"), id: eventID)
 
         let memberName = members.first { $0.id == user.uid }?.displayName ?? user.displayName
-        db.collection("groups").document(group.id).collection("exitEvents").addDocument(data: [
+        eventRef.setData([
             "memberId": user.uid,
             "memberName": memberName,
             "geofenceId": geofence.id,
             "geofenceName": geofence.name,
             "occurredAt": FieldValue.serverTimestamp(),
+            "type": "EXIT",
         ]) { [weak self] error in
-            guard let error else { return }
             MainActor.assumeIsolated {
-                self?.latestAlert = "Couldn't share your exit with the group: \(error.localizedDescription)"
+                guard let self else { return }
+                guard let error else {
+                    self.show(ExitAlert(title: title, body: sharedBody), id: eventID)
+                    return
+                }
+                Task {
+                    if await Self.wasSavedEarlier(eventRef, after: error) {
+                        self.show(ExitAlert(title: title, body: sharedBody), id: eventID)
+                    } else {
+                        self.sharedExitIDs.remove(eventID)
+                        LocalNotifications.post(ExitAlert(title: title, body: "\(leftPlace) Couldn't share it with the group."), id: eventID)
+                        self.latestAlert = "Couldn't share your exit with the group: \(error.localizedDescription)"
+                    }
+                }
             }
         }
+    }
+
+    func recordEntry(into geofence: Geofence, at occurredAt: Date) {
+        guard let user, let group = groups.first(where: { $0.id == geofence.groupId }) else { return }
+        let eventID = Self.eventID(memberID: user.uid, geofence: geofence, isEntry: true, occurredAt: occurredAt)
+        guard sharedExitIDs.insert(eventID).inserted else { return }
+        let eventRef = db.collection("groups").document(group.id).collection("exitEvents").document(eventID)
+        let memberName = members(in: group).first { $0.id == user.uid }?.displayName ?? user.displayName
+        let geofenceName = geofence.name
+        eventRef.setData([
+            "memberId": user.uid,
+            "memberName": memberName,
+            "geofenceId": geofence.id,
+            "geofenceName": geofence.name,
+            "occurredAt": FieldValue.serverTimestamp(),
+            "type": "ENTRY",
+        ]) { [weak self] error in
+            MainActor.assumeIsolated {
+                guard let self, let error else { return }
+                Task {
+                    guard !(await Self.wasSavedEarlier(eventRef, after: error)) else { return }
+                    self.sharedExitIDs.remove(eventID)
+                    self.latestAlert = "Couldn't share your arrival at \(geofenceName): \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private static func eventID(memberID: String, geofence: Geofence, isEntry: Bool, occurredAt: Date) -> String {
+        MemberAlerts.shared.eventId(
+            memberId: memberID,
+            geofenceId: geofence.id,
+            isEntry: isEntry,
+            occurredAtMillis: Int64((occurredAt.timeIntervalSince1970 * 1000).rounded())
+        )
+    }
+
+    func leave(_ group: TrackingGroup) async throws {
+        let user = try requireUser()
+        try await removeMember(withID: user.uid, from: group)
+    }
+
+    func remove(_ member: GroupMember, from group: TrackingGroup) async throws {
+        try await removeMember(withID: member.id, from: group)
+    }
+
+    func isOwner(of group: TrackingGroup) -> Bool {
+        user != nil && ownerIDsByGroup[group.id] == user?.uid
+    }
+
+    private func removeMember(withID memberID: String, from group: TrackingGroup) async throws {
+        let groupRef = db.collection("groups").document(group.id)
+        let batch = db.batch()
+        batch.updateData(["memberIds": FieldValue.arrayRemove([memberID])], forDocument: groupRef)
+        batch.deleteDocument(groupRef.collection("members").document(memberID))
+        do {
+            try await batch.commit()
+        } catch where Self.isPermissionDenied(error) {
+            throw UserFacingError(message: "Only the group owner can remove members, and the owner can't leave the group.")
+        }
+    }
+
+    private static func wasSavedEarlier(_ eventRef: DocumentReference, after error: Error) async -> Bool {
+        guard isPermissionDenied(error) else { return false }
+        return (try? await eventRef.getDocument(source: .server))?.exists ?? false
     }
 
     private func requireUser() throws -> SignedInUser {
         guard let user else { throw UserFacingError(message: "Please sign in again.") }
         return user
     }
-
-    // MARK: - Reading documents
 
     private static func geofence(from document: QueryDocumentSnapshot, groupID: String) -> Geofence? {
         guard let name = document["name"] as? String,
@@ -283,7 +413,8 @@ final class GroupStore {
             memberId: memberID,
             memberName: memberName,
             geofenceId: geofenceID,
-            geofenceName: geofenceName
+            geofenceName: geofenceName,
+            isEntry: document["type"] as? String == "ENTRY"
         )
     }
 }

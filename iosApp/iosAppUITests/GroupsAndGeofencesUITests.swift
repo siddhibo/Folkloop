@@ -1,12 +1,10 @@
 import XCTest
 
-/// Walks through the milestone flow: create a group, then save a geofence picked on the map.
 final class GroupsAndGeofencesUITests: XCTestCase {
     @MainActor
     func testCreateGroupAndSaveGeofence() {
         let app = XCUIApplication.launchSignedUp(as: "Alice")
 
-        // Create a group. An empty name must be rejected by the Kotlin validation.
         app.buttons["New Group"].tap()
         app.buttons["Create"].tap()
         XCTAssertTrue(app.staticTexts["Name cannot be empty."].waitForExistence(timeout: 3))
@@ -21,7 +19,6 @@ final class GroupsAndGeofencesUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["0 geofences"].exists)
         groupRow.tap()
 
-        // Add a geofence: name it, tap the map to set the centre, then save.
         app.buttons["Add Geofence"].tap()
         let saveButton = app.buttons["Save"]
         XCTAssertTrue(saveButton.waitForExistence(timeout: 3))
@@ -32,13 +29,11 @@ final class GroupsAndGeofencesUITests: XCTestCase {
         geofenceName.typeText("Home")
 
         app.descendants(matching: .any)["geofenceMap"].firstMatch.tap()
-        // SwiftUI updates the button a moment after the tap, so wait for it.
         let enabled = expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: saveButton)
         wait(for: [enabled], timeout: 3)
         attachScreenshot(named: "Geofence editor")
         saveButton.tap()
 
-        // The saved row shows the default 300 m radius followed by its coordinates.
         let savedRow = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '300 m'")).firstMatch
         XCTAssertTrue(savedRow.waitForExistence(timeout: 10))
         attachScreenshot(named: "Group detail")

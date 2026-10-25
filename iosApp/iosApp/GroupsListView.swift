@@ -4,6 +4,9 @@ import Shared
 struct GroupsListView: View {
     @Environment(GroupStore.self) private var store
     @Environment(SessionStore.self) private var session
+    @Environment(NotificationPermission.self) private var notifications
+    @Environment(PushRegistration.self) private var push
+    @Environment(\.scenePhase) private var scenePhase
     @State private var isCreatingGroup = false
     @State private var isJoiningGroup = false
 
@@ -34,7 +37,19 @@ struct GroupsListView: View {
             .navigationTitle("Groups")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Sign Out") { session.signOut() }
+                    Button("Sign Out") {
+                        Task {
+                            await push.unregister()
+                            session.signOut()
+                        }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        ActivityDashboardView()
+                    } label: {
+                        Label("Activity", systemImage: "chart.xyaxis.line")
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Join Group", systemImage: "person.badge.plus") {
@@ -52,6 +67,12 @@ struct GroupsListView: View {
             }
             .sheet(isPresented: $isJoiningGroup) {
                 JoinGroupView()
+            }
+        }
+        .task { await notifications.refresh() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await notifications.refresh() }
             }
         }
     }

@@ -1,7 +1,6 @@
 import CoreLocation
 import Shared
 
-// Kotlin models already have a String `id`, so SwiftUI lists can use them directly.
 extension TrackingGroup: @retroactive Identifiable {}
 extension Geofence: @retroactive Identifiable {}
 extension GroupMember: @retroactive Identifiable {}

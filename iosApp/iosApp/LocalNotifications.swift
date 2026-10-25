@@ -1,15 +1,21 @@
 import Foundation
+import OSLog
 import Shared
 import UserNotifications
 
-/// Shows an alert on this device only. Nothing here reaches other devices.
 enum LocalNotifications {
-    static func post(_ alert: ExitAlert) {
+    private static let logger = Logger(subsystem: "com.geocircle.app", category: "LocalNotifications")
+
+    static func post(_ alert: ExitAlert, id: String) {
         let content = UNMutableNotificationContent()
         content.title = alert.title
         content.body = alert.body
         content.sound = .default
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                logger.error("Couldn't schedule notification \(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 }

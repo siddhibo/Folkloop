@@ -1,26 +1,40 @@
 import CoreLocation
 import XCTest
 
-/// Moves the simulated device out of a saved geofence and checks that the exit is detected and alerted.
 final class GeofenceExitUITests: XCTestCase {
     private let insideApplePark = CLLocation(latitude: 37.3349, longitude: -122.0090)
     private let sevenKilometresNorth = CLLocation(latitude: 37.3979, longitude: -122.0090)
 
     @MainActor
     func testLeavingGeofenceShowsExitAlert() async throws {
+        continueAfterFailure = false
         XCUIApplication().resetAuthorizationStatus(for: .location)
         XCUIDevice.shared.location = XCUILocation(location: insideApplePark)
+
+        var promptedEarly = false
+        let earlyPromptMonitor = addUIInterruptionMonitor(withDescription: "Early location prompt") { alert in
+            let allow = alert.buttons["Allow While Using App"]
+            guard allow.exists else { return false }
+            promptedEarly = true
+            allow.tap()
+            return true
+        }
+        let earlyPromptMessage = "The location permission prompt appeared unexpectedly during launch/sign-up, before Enable Exit Alerts was tapped"
         let app = XCUIApplication.launchSignedUp(as: "Dana")
+        guard !promptedEarly else { return XCTFail(earlyPromptMessage) }
 
         app.buttons["Enable Exit Alerts"].tap()
+        removeUIInterruptionMonitor(earlyPromptMonitor)
+        guard !promptedEarly else { return XCTFail(earlyPromptMessage) }
         allowSystemAlerts()
         let monitoringStatus = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Monitoring 0 of 0'")).firstMatch
-        XCTAssertTrue(monitoringStatus.waitForExistence(timeout: 5))
+        guard monitoringStatus.waitForExistence(timeout: 5) else {
+            return XCTFail("Location access should be granted before adding geofences")
+        }
 
-        // Save a geofence around the current simulated location (the editor map opens centred on Apple Park).
         app.createGroup(named: "Commute")
         app.staticTexts["Commute"].tap()
-        app.addGeofenceAtMapCentre(named: "Office")
+        app.addGeofenceAtCurrentLocation(named: "Office")
 
         XCTAssertTrue(app.staticTexts["Inside"].waitForExistence(timeout: 30), "Core Location should report the device inside")
         attachScreenshot(named: "Inside geofence")
@@ -36,11 +50,9 @@ final class GeofenceExitUITests: XCTestCase {
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["You left Office (Commute). No other members are in this group yet."].waitForExistence(timeout: 5))
-        // The person who left never gets the member alert about themselves.
         XCTAssertFalse(app.staticTexts["Dana left Office (Commute)."].exists)
         attachScreenshot(named: "Exit Alerts status")
 
-        // The exit was written to Firestore through the security rules.
         let event = try await waitForExitEvent(inGroupNamed: "Commute")
         XCTAssertEqual(EmulatorClient.string("memberName", in: event), "Dana")
         XCTAssertEqual(EmulatorClient.string("geofenceName", in: event), "Office")
@@ -51,7 +63,6 @@ final class GeofenceExitUITests: XCTestCase {
         let emulator = EmulatorClient()
         for _ in 0..<20 {
             let groups = try await emulator.adminList("groups")
-            // Several test runs may create a "Commute" group; check the newest ones too.
             for group in groups where EmulatorClient.string("name", in: group) == groupName {
                 let groupID = String((group["name"] as! String).split(separator: "/").last!)
                 if let event = try await emulator.adminList("groups/\(groupID)/exitEvents").first(where: {
@@ -65,7 +76,6 @@ final class GeofenceExitUITests: XCTestCase {
         throw EmulatorClient.RequestError(description: "No exit event was written for \(groupName)")
     }
 
-    /// Taps through the location and notification permission prompts, in whichever order they appear.
     @MainActor
     private func allowSystemAlerts() {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")

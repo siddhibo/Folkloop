@@ -7,17 +7,16 @@ struct SignedInUser: Equatable {
     let displayName: String
 }
 
-/// An error whose message can be shown to the user as-is.
 struct UserFacingError: LocalizedError {
     let message: String
     var errorDescription: String? { message }
 }
 
-/// Tracks who is signed in with Firebase Authentication (email and password).
 @MainActor
 @Observable
 final class SessionStore {
     private(set) var user: SignedInUser?
+    private(set) var isRestoringSession = true
 
     @ObservationIgnored private var authListener: AuthStateDidChangeListenerHandle?
 
@@ -25,6 +24,7 @@ final class SessionStore {
         authListener = Auth.auth().addStateDidChangeListener { [weak self] _, firebaseUser in
             MainActor.assumeIsolated {
                 self?.user = firebaseUser.map { SignedInUser(uid: $0.uid, displayName: $0.displayName ?? "") }
+                self?.isRestoringSession = false
             }
         }
     }
@@ -38,7 +38,6 @@ final class SessionStore {
         let change = result.user.createProfileChangeRequest()
         change.displayName = displayName
         try await change.commitChanges()
-        // The auth listener fired before the name was saved, so publish the complete user now.
         user = SignedInUser(uid: result.user.uid, displayName: displayName)
     }
 

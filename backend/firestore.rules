@@ -1,14 +1,7 @@
 rules_version = '2';
 
-// Data layout:
-//   groups/{groupId}                 name, ownerId, joinCode, memberIds, createdAt
-//   groups/{groupId}/members/{uid}   displayName, status ("OWNER" | "MEMBER"), joinedAt, joinCode (members only)
-//   groups/{groupId}/geofences/{id}  name, latitude, longitude, radiusMeters, createdBy
-//   groups/{groupId}/exitEvents/{id} memberId, memberName, geofenceId, geofenceName, occurredAt
-//   joinCodes/{code}                 groupId
 service cloud.firestore {
   match /databases/{database}/documents {
-
     function signedIn() {
       return request.auth != null;
     }
@@ -21,15 +14,12 @@ service cloud.firestore {
       return signedIn() && request.auth.uid in get(groupPath(groupId)).data.memberIds;
     }
 
-    // Same rule as the Kotlin Validation.nameError, enforced again on the server.
     function validName(name) {
       return name is string && name.size() >= 1 && name.size() <= 40 && name.trim() == name;
     }
 
     match /joinCodes/{code} {
-      // Knowing the code is what lets someone join, so codes can be read one at a time but never listed.
       allow get: if signedIn();
-      // Created only in the batch that creates its group. Reusing an existing code counts as an update and is denied.
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['groupId'])
         && !exists(groupPath(request.resource.data.groupId))
@@ -51,13 +41,27 @@ service cloud.firestore {
         && existsAfter(/databases/$(database)/documents/joinCodes/$(request.resource.data.joinCode))
         && existsAfter(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid));
 
-      // Joining: a non-member appends only their own id, in the same batch as a member document
-      // that carries the correct join code (checked by the members rule below).
       allow update: if signedIn()
-        && !(request.auth.uid in resource.data.memberIds)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds'])
-        && request.resource.data.memberIds == resource.data.memberIds.concat([request.auth.uid])
-        && existsAfter(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid));
+        && (
+          (!(request.auth.uid in resource.data.memberIds)
+            && request.resource.data.memberIds == resource.data.memberIds.concat([request.auth.uid])
+            && existsAfter(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid)))
+          || removesOneNonOwnerMember()
+        );
+
+      function removedMemberIds() {
+        return resource.data.memberIds.toSet().difference(request.resource.data.memberIds.toSet());
+      }
+
+      function removesOneNonOwnerMember() {
+        return request.auth.uid in resource.data.memberIds
+          && request.resource.data.memberIds.toSet().difference(resource.data.memberIds.toSet()).size() == 0
+          && request.resource.data.memberIds.size() == request.resource.data.memberIds.toSet().size()
+          && removedMemberIds().size() == 1
+          && !removedMemberIds().hasAny([resource.data.ownerId])
+          && (removedMemberIds().hasOnly([request.auth.uid]) || resource.data.ownerId == request.auth.uid);
+      }
 
       match /members/{memberId} {
         allow read: if isMember(groupId);
@@ -67,47 +71,61 @@ service cloud.firestore {
           && validName(request.resource.data.displayName)
           && request.resource.data.joinedAt == request.time
           && (
-            // The creator becomes owner in the batch that creates the group.
             (request.resource.data.keys().hasOnly(['displayName', 'status', 'joinedAt'])
               && request.resource.data.status == 'OWNER'
               && !exists(groupPath(groupId))
               && getAfter(groupPath(groupId)).data.ownerId == request.auth.uid)
             ||
-            // Anyone else must present the group's join code.
             (request.resource.data.keys().hasOnly(['displayName', 'status', 'joinedAt', 'joinCode'])
               && request.resource.data.status == 'MEMBER'
               && request.resource.data.joinCode == get(groupPath(groupId)).data.joinCode
               && request.auth.uid in getAfter(groupPath(groupId)).data.memberIds)
           );
+
+        allow delete: if signedIn()
+          && memberId != get(groupPath(groupId)).data.ownerId
+          && (memberId == request.auth.uid || get(groupPath(groupId)).data.ownerId == request.auth.uid)
+          && !(memberId in getAfter(groupPath(groupId)).data.memberIds);
       }
 
       match /geofences/{geofenceId} {
         allow read: if isMember(groupId);
 
-        // Same limits as the Kotlin Validation object.
+        function validGeofence(data) {
+          return validName(data.name)
+            && data.latitude is number
+            && data.latitude >= -90 && data.latitude <= 90
+            && data.longitude is number
+            && data.longitude >= -180 && data.longitude <= 180
+            && data.radiusMeters is number
+            && data.radiusMeters >= 100 && data.radiusMeters <= 2000;
+        }
+
+        function isCreatorOrOwner() {
+          return resource.data.createdBy == request.auth.uid
+            || get(groupPath(groupId)).data.ownerId == request.auth.uid;
+        }
+
         allow create: if isMember(groupId)
           && request.resource.data.keys().hasOnly(['name', 'latitude', 'longitude', 'radiusMeters', 'createdBy'])
-          && validName(request.resource.data.name)
-          && request.resource.data.latitude is number
-          && request.resource.data.latitude >= -90 && request.resource.data.latitude <= 90
-          && request.resource.data.longitude is number
-          && request.resource.data.longitude >= -180 && request.resource.data.longitude <= 180
-          && request.resource.data.radiusMeters is number
-          && request.resource.data.radiusMeters >= 100 && request.resource.data.radiusMeters <= 2000
+          && validGeofence(request.resource.data)
           && request.resource.data.createdBy == request.auth.uid;
 
+        allow update: if isMember(groupId)
+          && isCreatorOrOwner()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'latitude', 'longitude', 'radiusMeters'])
+          && validGeofence(request.resource.data);
+
         allow delete: if isMember(groupId)
-          && (resource.data.createdBy == request.auth.uid
-            || get(groupPath(groupId)).data.ownerId == request.auth.uid);
+          && isCreatorOrOwner();
       }
 
       match /exitEvents/{eventId} {
         allow read: if isMember(groupId);
 
-        // A member may only report their own exit, from a geofence that exists in this group,
-        // stamped with the server's time. Events can never be changed or deleted.
         allow create: if isMember(groupId)
-          && request.resource.data.keys().hasOnly(['memberId', 'memberName', 'geofenceId', 'geofenceName', 'occurredAt'])
+          && request.resource.data.keys().hasOnly(['memberId', 'memberName', 'geofenceId', 'geofenceName', 'occurredAt', 'type'])
+          && request.resource.data.get('type', 'EXIT') in ['ENTRY', 'EXIT']
           && request.resource.data.memberId == request.auth.uid
           && request.resource.data.memberName
             == get(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid)).data.displayName
@@ -115,6 +133,18 @@ service cloud.firestore {
             == get(/databases/$(database)/documents/groups/$(groupId)/geofences/$(request.resource.data.geofenceId)).data.name
           && request.resource.data.occurredAt == request.time;
       }
+    }
+
+    match /users/{uid}/devices/{deviceId} {
+      allow read, delete: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['token', 'platform', 'updatedAt'])
+        && request.resource.data.token is string
+        && request.resource.data.token.size() > 0
+        && request.resource.data.token.size() <= 4096
+        && request.resource.data.platform == 'ios'
+        && request.resource.data.updatedAt == request.time;
     }
   }
 }

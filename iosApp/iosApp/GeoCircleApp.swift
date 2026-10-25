@@ -2,16 +2,18 @@ import SwiftUI
 
 @main
 struct GeoCircleApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session: SessionStore
     @State private var store: GroupStore
     @State private var monitor: GeofenceMonitor
+    @State private var notificationPermission = NotificationPermission()
 
     init() {
-        // Firebase must be configured before any store touches Auth or Firestore.
         FirebaseSetup.configure()
         let store = GroupStore()
         let monitor = GeofenceMonitor()
-        monitor.onExit = { geofence in store.recordExit(from: geofence) }
+        monitor.onExit = { geofence, occurredAt in store.recordExit(from: geofence, at: occurredAt) }
+        monitor.onEntry = { geofence, occurredAt in store.recordEntry(into: geofence, at: occurredAt) }
         _session = State(initialValue: SessionStore())
         _store = State(initialValue: store)
         _monitor = State(initialValue: monitor)
@@ -23,13 +25,28 @@ struct GeoCircleApp: App {
                 .environment(session)
                 .environment(store)
                 .environment(monitor)
+                .environment(notificationPermission)
+                .environment(appDelegate.push)
                 .onChange(of: session.user, initial: true) { _, user in
-                    store.start(for: user)
+                    if !session.isRestoringSession {
+                        store.start(for: user)
+                    }
+                    updatePushRegistration()
                 }
-                .onChange(of: store.allGeofences, initial: true) { _, geofences in
-                    monitor.sync(geofences: geofences)
+                .onChange(of: notificationPermission.status) {
+                    updatePushRegistration()
+                }
+                .onChange(of: store.geofencesToMonitor, initial: true) { _, geofences in
+                    if let geofences {
+                        monitor.sync(geofences: geofences)
+                    }
                 }
         }
+    }
+
+    private func updatePushRegistration() {
+        let notificationsAllowed = notificationPermission.status.map { [.authorized, .provisional, .ephemeral].contains($0) } ?? false
+        appDelegate.push.update(userID: session.user?.uid, notificationsAllowed: notificationsAllowed)
     }
 }
 

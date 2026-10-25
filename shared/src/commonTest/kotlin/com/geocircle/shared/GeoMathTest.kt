@@ -21,7 +21,6 @@ class GeoMathTest {
 
     @Test
     fun knownCityDistance() {
-        // London to Paris is about 343.5 km.
         val london = GeoPoint(51.5074, -0.1278)
         val paris = GeoPoint(48.8566, 2.3522)
         assertEquals(343_500.0, GeoMath.distanceMeters(london, paris), 1_000.0)
@@ -30,7 +29,6 @@ class GeoMathTest {
     @Test
     fun insideAndOutsideGeofence() {
         val geofence = Geofence("g1", "group-1", "Home", center, radiusMeters = 200.0)
-        // About 0.001 degrees of latitude is ~111 m.
         assertTrue(GeoMath.isInside(GeoPoint(center.latitude + 0.001, center.longitude), geofence))
         assertFalse(GeoMath.isInside(GeoPoint(center.latitude + 0.003, center.longitude), geofence))
     }

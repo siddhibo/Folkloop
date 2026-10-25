@@ -33,7 +33,7 @@ class JoinCodesTest {
     fun rejectsWrongLengthAndConfusingCharacters() {
         assertNotNull(JoinCodes.formatError("ABC23"))
         assertNotNull(JoinCodes.formatError("ABC2345"))
-        assertNotNull(JoinCodes.formatError("ABC0O1")) // 0, O and 1 are never generated
-        assertNotNull(JoinCodes.formatError("abc234")) // must be normalized first
+        assertNotNull(JoinCodes.formatError("ABC0O1"))
+        assertNotNull(JoinCodes.formatError("abc234"))
     }
 }

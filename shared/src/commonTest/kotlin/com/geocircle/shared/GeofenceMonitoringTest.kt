@@ -27,9 +27,9 @@ class GeofenceMonitoringTest {
 
     @Test
     fun withLocationKeepsClosestEdges() {
-        val near = geofence("near", here.latitude + 0.01) // ~1.1 km away, edge ~1 km
-        val far = geofence("far", here.latitude + 0.1) // ~11 km away
-        val bigFar = geofence("bigFar", here.latitude + 0.02, radiusMeters = 2_000.0) // edge already reached
+        val near = geofence("near", here.latitude + 0.01)
+        val far = geofence("far", here.latitude + 0.1)
+        val bigFar = geofence("bigFar", here.latitude + 0.02, radiusMeters = 2_000.0)
         val selected = GeofenceMonitoring.selectForMonitoring(listOf(far, near, bigFar), here, limit = 2)
         assertEquals(listOf("bigFar", "near"), selected.map { it.id })
     }
@@ -38,6 +38,15 @@ class GeofenceMonitoringTest {
     fun zeroLimitSelectsNothingAndNegativeIsRejected() {
         assertTrue(GeofenceMonitoring.selectForMonitoring(listOf(geofence("a", 37.0)), here, limit = 0).isEmpty())
         assertFailsWith<IllegalArgumentException> { GeofenceMonitoring.selectForMonitoring(emptyList(), here, limit = -1) }
+    }
+
+    @Test
+    fun onlyOutsideToInsideIsAnEntry() {
+        assertTrue(GeofenceMonitoring.isEntry(RegionState.OUTSIDE, RegionState.INSIDE))
+        assertFalse(GeofenceMonitoring.isEntry(RegionState.UNKNOWN, RegionState.INSIDE))
+        assertFalse(GeofenceMonitoring.isEntry(RegionState.INSIDE, RegionState.INSIDE))
+        assertFalse(GeofenceMonitoring.isEntry(RegionState.OUTSIDE, RegionState.UNKNOWN))
+        assertFalse(GeofenceMonitoring.isEntry(RegionState.INSIDE, RegionState.OUTSIDE))
     }
 
     @Test
@@ -51,6 +60,13 @@ class GeofenceMonitoringTest {
     }
 
     @Test
+    fun sameRegionToleratesRoundingButNotRealEdits() {
+        assertTrue(GeofenceMonitoring.isSameRegion(here, 300.0, GeoPoint(here.latitude + 0.000001, here.longitude), 300.0))
+        assertFalse(GeofenceMonitoring.isSameRegion(here, 300.0, GeoPoint(here.latitude + 0.001, here.longitude), 300.0))
+        assertFalse(GeofenceMonitoring.isSameRegion(here, 300.0, here, 350.0))
+    }
+
+    @Test
     fun exitAlertNamesPlaceAndGroup() {
         val alert = GeofenceMonitoring.exitAlert(geofence("a", 37.0), groupName = "Family", otherMemberCount = 0)
         assertEquals("Left Place a", alert.title)
@@ -61,7 +77,7 @@ class GeofenceMonitoringTest {
     fun exitAlertSaysOtherMembersOnlySeeItWhileAppIsOpen() {
         val one = GeofenceMonitoring.exitAlert(geofence("a", 37.0), "Family", otherMemberCount = 1)
         val two = GeofenceMonitoring.exitAlert(geofence("a", 37.0), "Family", otherMemberCount = 2)
-        assertTrue("1 other member, who sees it only if GeoCircle is open" in one.body)
-        assertTrue("2 other members, who see it only if GeoCircle is open" in two.body)
+        assertTrue("1 other member, who sees it only if Folkloop is open" in one.body)
+        assertTrue("2 other members, who see it only if Folkloop is open" in two.body)
     }
 }

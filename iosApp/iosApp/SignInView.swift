@@ -40,7 +40,7 @@ struct SignInView: View {
                 Button("Continue", action: submit)
                     .disabled(isWorking)
             }
-            .navigationTitle("GeoCircle")
+            .navigationTitle("Folkloop")
         }
     }
 

@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1C81D6F669B7BB6D2FFCCEB3 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 617043448F4869026C2F0BB4 /* FirebaseAuth */; };
 		445C052442747365B7CB2124 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 84FCD721953CC33D9035BCCD /* FirebaseFirestore */; };
+		B7A1C2D3E4F5061728394A5B /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = C8B2D3E4F5061728394A5B6C /* FirebaseMessaging */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -23,25 +24,17 @@
 
 /* Begin PBXFileReference section */
 		323906AFB18147ABEDEBDB38 /* iosAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = iosAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		86038AE1032E284E79B32AD6 /* iosApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = iosApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		86038AE1032E284E79B32AD6 /* iosApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; name = iosApp.app; path = GeoCircle.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		36EB8E1C183CDFF4339FCEDA /* iosApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
 			path = iosApp;
 			sourceTree = "<group>";
 		};
 		B3FA6402DE91F3E1EC957A4B /* iosAppUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
 			path = iosAppUITests;
 			sourceTree = "<group>";
 		};
@@ -54,6 +47,7 @@
 			files = (
 				1C81D6F669B7BB6D2FFCCEB3 /* FirebaseAuth in Frameworks */,
 				445C052442747365B7CB2124 /* FirebaseFirestore in Frameworks */,
+				B7A1C2D3E4F5061728394A5B /* FirebaseMessaging in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -101,6 +95,7 @@
 			packageProductDependencies = (
 				617043448F4869026C2F0BB4 /* FirebaseAuth */,
 				84FCD721953CC33D9035BCCD /* FirebaseFirestore */,
+				C8B2D3E4F5061728394A5B6C /* FirebaseMessaging */,
 			);
 			productName = iosApp;
 			productReference = 86038AE1032E284E79B32AD6 /* iosApp.app */;
@@ -404,9 +399,9 @@
 					"$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = GeoCircle;
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "GeoCircle uses your location in the background to alert you when you leave a group geofence.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GeoCircle uses your location to detect when you leave a group geofence.";
+				INFOPLIST_KEY_CFBundleDisplayName = Folkloop;
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Folkloop uses your location in the background to alert you when you leave a group geofence.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Folkloop uses your location to detect when you leave a group geofence.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -439,9 +434,9 @@
 					"$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = GeoCircle;
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "GeoCircle uses your location in the background to alert you when you leave a group geofence.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GeoCircle uses your location to detect when you leave a group geofence.";
+				INFOPLIST_KEY_CFBundleDisplayName = Folkloop;
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Folkloop uses your location in the background to alert you when you leave a group geofence.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Folkloop uses your location to detect when you leave a group geofence.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -514,6 +509,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 7C4F1707FE80007C7DCEAE3C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		C8B2D3E4F5061728394A5B6C /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7C4F1707FE80007C7DCEAE3C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

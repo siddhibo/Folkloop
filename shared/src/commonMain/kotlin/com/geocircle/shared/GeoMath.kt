@@ -9,7 +9,6 @@ import kotlin.math.sqrt
 object GeoMath {
     private const val EARTH_RADIUS_METERS = 6_371_000.0
 
-    /** Straight-line distance over the Earth's surface (haversine formula). */
     fun distanceMeters(from: GeoPoint, to: GeoPoint): Double {
         val lat1 = from.latitude.toRadians()
         val lat2 = to.latitude.toRadians()
